@@ -37,6 +37,7 @@
   (ice-9 threads)
   (ice-9 sandbox)
   (ice-9 ftw)
+  ((ice-9 popen) #:select (open-input-pipe close-pipe))
   ((ice-9 rdelim) #:select (read-string))
   (web client))
 
@@ -316,13 +317,22 @@ definition."
 
   (write-channel-file output-dir "https://github.com/guix-science/guix-cran.git"))
 
+(define (guix-channels)
+  "Get Guix channel list sexp."
+  (let* ((port (open-input-pipe "guix describe -f channels"))
+         (channels (read port)))
+    (close-pipe port)
+    channels))
+
 (define (validate-channel output-dir channel-name)
   "Ensure the channel in OUTPUT-DIR can be pulled from. If not, reset to
 previous commit."
-  (let* ((channels-scm `(cons (channel
+  (let* ((guix-channels (guix-channels))
+         (channels-scm `(cons (channel
                                 (name ',(string->symbol channel-name))
                                 (url ,(canonicalize-path output-dir)))
-                              %default-channels))
+                              ;; Re-use the exact Guix commit, so packages are the same.
+                              ,guix-channels))
          (channels-port (mkstemp "/tmp/channels.scm.XXXXXXX"))
          (channels-path (port-filename channels-port)))
     (pretty-print-with-comments channels-port channels-scm)
