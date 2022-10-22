@@ -150,9 +150,17 @@
       (#f (if (member (symbol->string input) all-r-names)
               (cons input accum)
               (begin
-                (format #t "Deleting variable ~a~%" input)
+                (format #t "Deleting variable ~a: Does not exist.~%" input)
                 accum)))
-      ((? module? module) (cons input accum))))
+      ((? module? module)
+       (let ((pkg (module-ref module input)))
+         ;; Packages like pkg-config use DEFINE-SYNTAX, so PACKAGE? would return
+         ;; #f. But packages can never be procedures.
+         (if (procedure? pkg)
+           (begin
+             (format #t "Deleting variable ~a: Not a package.~%" input)
+             accum)
+           (cons input accum))))))
    '() inputs))
 
 (define (add-license:-prefix symbol)
