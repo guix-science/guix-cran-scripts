@@ -358,7 +358,8 @@ previous commit."
       (lambda (e)
         (format #t "`guix pull` failed: ~a~%" e)
         (with-directory-excursion output-dir
-          (invoke "git" "reset" "HEAD^")))
+          (invoke "git" "reset" "HEAD^"))
+        (exit 2))
       (lambda ()
         (let ((profile-directory (string-append (mkdtemp "/tmp/profile.XXXXXXX") "/profile")))
           (format #t "Trying to pull from ~a to ~a~%" channels-path profile-directory)
