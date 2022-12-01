@@ -201,10 +201,11 @@ expires."
   "Import package from CRAN, fix inputs and return imports/package
 definition."
   (format #t "Importing package ~a from CRAN…~%" cran-name)
-  (let* ((package-sexp (parameterize ((%license-prefix add-license:-prefix)
-                                      (%fetch-description fetch-description)
-                                      (%download-source download-source))
-                         (cran->guix-package cran-name)))
+  (let* ((package-sexp (apply-overrides
+                         (cran->guix-package cran-name
+                                             #:license-prefix add-license:-prefix
+                                             #:fetch-description fetch-description
+                                             #:download-source download-source)))
          (guix-name (package-sexp->name package-sexp))
 
          ;; Rewrite inputs, deleting non-existent variables.
