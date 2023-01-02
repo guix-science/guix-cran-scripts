@@ -351,7 +351,11 @@ previous commit."
     (with-directory-excursion output-dir
       ;; guile git does not provide commit, so use shell tools.
       (invoke "git" "add" ".")
-      (invoke "git" "commit" "-m" "Automated CRAN import"))
+      (invoke "git" "commit" "-m" (string-append "Automated CRAN import "
+                                                 (strftime "%F" (gmtime %now))
+                                                 "\n\n"
+                                                 "Compatible with the following channels:\n\n"
+                                                 (object->string* guix-channels 0))))
 
     ;; Try pulling from the channel, revert to previous state if it fails.
     (with-exception-handler
