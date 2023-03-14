@@ -43,11 +43,12 @@
 
 ;; Cache current time, so it’s available without overhead.
 (define %now (current-time))
+(define %cran-url "https://cloud.r-project.org/web/packages/")
 
 (define all
   (call-with-values
       (lambda ()
-        (http-get "https://cran.r-project.org/web/packages/available_packages_by_name.html"))
+        (http-get (string-append %cran-url "available_packages_by_name.html")))
     (lambda (response body)
       ((sxpath '(* * table * td a *text*))
        (html->sxml body)))))
@@ -167,7 +168,6 @@
   "Add license: prefix to SYMBOL."
   (string->symbol (string-append "license:" (symbol->string symbol))))
 
-(define %cran-url "https://cran.r-project.org/web/packages/")
 (define* (fetch-description repository name #:optional version)
   "Fetch DESCRIPTION file of CRAN package NAME and store to cache, which
 expires after 23 hours."
