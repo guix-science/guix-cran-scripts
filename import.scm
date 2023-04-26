@@ -50,7 +50,7 @@
       (lambda ()
         (http-get (string-append %cran-url "available_packages_by_name.html")))
     (lambda (response body)
-      ((sxpath '(* * table * td a *text*))
+      ((sxpath '(* * table * td a span *text*))
        (html->sxml body)))))
 
 (define all-r-packages
