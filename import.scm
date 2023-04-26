@@ -279,6 +279,11 @@ definition."
 
 (define (create-channel output-dir channel-name)
   "Create channel containing all CRAN packages not in Guix proper yet."
+
+  (when (eq? (length missing) 0)
+    ;; Something must be wrong.
+    (raise-exception 'no-missing-packages))
+
   (delete-file-recursively (package-path output-dir channel-name))
   (mkdir-p (package-path output-dir channel-name))
 
