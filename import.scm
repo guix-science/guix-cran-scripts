@@ -31,6 +31,8 @@
   ((guix store) #:select (with-store add-indirect-root))
   ((guix download) #:select (download-to-store))
   ((guix memoization) #:select (mlambdaq))
+  (json)
+  (rnrs bytevectors)
   (srfi srfi-1)
   (srfi srfi-26)
   (srfi srfi-71)
@@ -42,16 +44,37 @@
   ((ice-9 rdelim) #:select (read-string))
   (web client))
 
+(define %bioc-channel-url "https://github.com/guix-science/guix-bioc.git")
+(define %cran-channel-url "https://github.com/guix-science/guix-cran.git")
+
 ;; Cache current time, so it’s available without overhead.
 (define %now (current-time))
 (define %cran-url "https://cloud.r-project.org/web/packages/")
+(define %bioconductor-version
+  (@@ (guix import cran) %bioconductor-version))
+(define %bioconductor-url
+  (string-append "https://bioconductor.org/packages/json/"
+                 %bioconductor-version "/bioc/packages.js"))
 
-(define all
+;; TODO: memoize these
+(define (all-cran-packages)
   (let ((response body
-         (http-get
-          (string-append %cran-url "available_packages_by_name.html"))))
+                  (http-get
+                   (string-append %cran-url "available_packages_by_name.html"))))
     ((sxpath '(* * table * td a span *text*))
      (html->sxml body))))
+
+(define (all-bioc-packages)
+  "Return the names of all Bioconductor packages"
+  (let* ((json (let ((response body (http-get %bioconductor-url)))
+                 (let* ((text (utf8->string body))
+                        (data-index (string-index text #\{))
+                        (json-string (string-drop text data-index)))
+                   (call-with-input-string json-string
+                     (lambda (port)
+                       (json->scm port #:concatenated #true))))))
+         (content (vector->list (assoc-ref json "content"))))
+    (map (compose car vector->list) content)))
 
 (define all-r-packages
   (fold-packages
@@ -63,7 +86,10 @@
    (list)))
 
 (define cran-guix-name (cut guix-name "r-" <>))
-(define all-r-names (map cran-guix-name all))
+(define all-r-names
+  (map cran-guix-name
+       (append (all-cran-packages)
+               (all-bioc-packages))))
 
 (define (upstream-name pkg)
   "Return the upstream CRAN name of the package PKG."
@@ -72,13 +98,10 @@
        (lambda (prop) (assoc-ref prop 'upstream-name)))
       (string-drop (package-name pkg) 2)))
 
-;; CRAN package names available in Guix.
-(define existing
-  (map upstream-name all-r-packages))
-
 ;; CRAN package names not in Guix yet. Packages names are case-insensitive.
-(define missing
-  (lset-difference string-ci=? all existing))
+(define (missing all)
+  (let ((existing (map upstream-name all-r-packages)))
+    (lset-difference string-ci=? all existing)))
 
 (define (package-sexp->name package)
   "Extract the value of the NAME field from the package S-expression
@@ -162,7 +185,7 @@ S-expression PACKAGE as a list."
       (#f (if (member (symbol->string input) all-r-names)
               (cons input accum)
               (begin
-                (format #t "Deleting variable ~a: Does not exist.~%" input)
+                (format (current-error-port) "Deleting variable ~a: Does not exist.~%" input)
                 accum)))
       ((? module? module)
        (let ((pkg (module-ref module input)))
@@ -170,7 +193,7 @@ S-expression PACKAGE as a list."
          ;; #f. But packages can never be procedures.
          (if (procedure? pkg)
            (begin
-             (format #t "Deleting variable ~a: Not a package.~%" input)
+             (format (current-error-port) "Deleting variable ~a: Not a package.~%" input)
              accum)
            (cons input accum))))))
    '() inputs))
@@ -179,43 +202,57 @@ S-expression PACKAGE as a list."
   "Add license: prefix to SYMBOL."
   (string->symbol (string-append "license:" (symbol->string symbol))))
 
-(define* (fetch-description repository name #:optional version)
-  "Fetch DESCRIPTION file of CRAN package NAME and store to cache, which
-expires after 23 hours."
-  (let* ((cache-path (string-append "cache/description/" name))
-         (file-stat (stat cache-path #f)))
-    (if (and file-stat (>= (stat:mtime file-stat) (- %now (* 23 60 60))))
-      (description->alist (call-with-input-file cache-path read-string))
-      (let* ((url  (string-append %cran-url name "/DESCRIPTION"))
-             (port (http-fetch url))
-             (contents (read-string port)))
-        (close-port port)
-        (format #t "Fetched description for ~a from ~a~%" name url)
-        (call-with-output-file cache-path
-          (lambda (port) (format port "~a" contents)))
-        (description->alist contents)))))
+(define (cache-fresh? file)
+  "Consider the cached file stale after 23 hours."
+  (let ((file-stat (stat file #f)))
+    (and file-stat
+         (< (- %now (* 23 60 60))
+            (stat:mtime file-stat)))))
+
+(define* (cached-fetch-description repository name #:optional version)
+  "Back FETCH-DESCRIPTION with a cache."
+  (let ((cache-path (string-append "cache/description/" name)))
+    (let ((result
+           (if (cache-fresh? cache-path)
+               (call-with-input-file cache-path read)
+               (let ((contents
+                      ((@@ (guix import cran) fetch-description)
+                       repository name version)))
+                 (call-with-output-file cache-path
+                   (lambda (port) (write contents port)))
+                 contents))))
+      (or result (error (format #false "No DESCRIPTION for `~a'" name))))))
+
+(define download
+  (@@ (guix import cran) download))
 
 (define* (download-source urls #:key method (ref '()))
   "Download CRAN source tarball and store to cache. The cache never
 expires."
   ;; CRAN urls have unique basename.
   (let ((cache-path (string-append "cache/contents/" (basename (car urls)))))
-    (when (not (access? cache-path R_OK))
+    (unless (access? cache-path R_OK)
       (format #t "Fetching ~a into cache~%" urls)
       (with-store store
-        (let ((store-path (any (cut download-to-store store <>) urls)))
+        (let ((store-path (download urls #:method method #:ref ref)))
           (symlink store-path cache-path)
           (add-indirect-root store (canonicalize-path cache-path)))))
     cache-path))
     
-(define (import-package cran-name)
+(define (import-package upstream-name)
   "Import package from CRAN, fix inputs and return imports/package
 definition."
-  (format #t "Importing package ~a from CRAN…~%" cran-name)
-  (let* ((package-sexp (cran->guix-package cran-name
+  (format #t "Importing package ~a from CRAN/Bioconductor…~%" upstream-name)
+  (let* ((package-sexp (cran->guix-package upstream-name
+                                           ;; We use bioconductor here
+                                           ;; because the importer
+                                           ;; falls back to 'cran
+                                           ;; anyway.
+                                           #:repo 'bioconductor
                                            #:license-prefix add-license:-prefix
-                                           #:fetch-description fetch-description
+                                           #:fetch-description cached-fetch-description
                                            #:download-source download-source))
+         (_ (unless package-sexp (error (format #false "`~a' is empty" upstream-name))))
          (guix-name (package-sexp->name package-sexp))
 
          ;; Rewrite inputs, deleting non-existent variables.
@@ -263,16 +300,28 @@ definition."
                               ,(string->symbol (string-append "guix:" guix-name)))))
     (list guix-name module-args-sexp package-def-sexp)))
 
-(define (write-channel-file output-dir channel-url)
-  "Write .guix-channel to indicate output-dir is a valid Guix channel."
-  (define guix-channel
-    `(channel
+(define (channel-file type)
+  "Return a description of the channel for the given repository TYPE.
+This is to be written to the .guix-channel file."
+  (case type
+    ((bioc)
+     `(channel
        (version 0)
-       (url ,channel-url)))
-  
+       (url ,%bioc-channel-url)
+       (dependencies
+        (channel
+         (name guix-cran)
+         (url ,%cran-channel-url)))))
+    ((cran)
+     `(channel
+       (version 0)
+       (url ,%cran-channel-url)))))
+
+(define (write-channel-file output-dir type)
+  "Write .guix-channel to indicate output-dir is a valid Guix channel."
   (call-with-output-file (string-append output-dir "/.guix-channel")
     (lambda (port)
-      (pretty-print-with-comments port guix-channel))))
+      (pretty-print-with-comments port (channel-file type)))))
 
 (define (group sorted-items key)
   "Group all items in list SORTED-ITEMS by KEY and return a list of
@@ -288,8 +337,8 @@ definition."
                (cons (list item-key (list item)) (cons (list last-key items) rest)))))))
     '() sorted-items))
 
-(define (create-channel output-dir channel-name)
-  "Create channel containing all CRAN packages not in Guix proper yet."
+(define (create-channel output-dir channel-name missing type)
+  "Create channel containing all MISSING packages not in Guix proper yet."
 
   (when (zero? (length missing))
     ;; Something must be wrong.
@@ -301,13 +350,15 @@ definition."
   ;(define existing-sexps (map import-existing all-r-packages))
   (define existing-sexps '())
   
-  (define new-sexps (map import-package
-                             missing))
-                             ;(take (delete "hglm" missing) 100)))
-                             ;(list "apcf" "abbreviate" "httr" "hglm" "BSDA")))
+  (define new-sexps
+    (filter-map (lambda (name)
+                  (false-if-exception
+                   (import-package name)))
+                missing))
 
   (define all-sexps
-    (sort (append existing-sexps new-sexps) (lambda (a b) (string<? (car a) (car b)))))
+    (sort (append existing-sexps new-sexps)
+          (lambda (a b) (string<? (car a) (car b)))))
 
   ;; Group packages by name. It seems that having multiple smaller files
   ;; is slightly faster than having a big one with all packages.
@@ -338,8 +389,7 @@ definition."
       (write-module path module-sexp all-packages)))
 
   (for-each (match-lambda ((key (items ...)) (write-group-module key items))) grouped-sexps)
-
-  (write-channel-file output-dir "https://github.com/guix-science/guix-cran.git"))
+  (write-channel-file output-dir type))
 
 (define (guix-channels)
   "Get Guix channel list sexp."
@@ -388,13 +438,22 @@ previous commit."
       #:unwind? #t)
     (delete-file channels-path)))
 
-(define (main output-dir channel-name)
+(define* (main output-dir channel-name #:optional (type 'cran))
   "Entry point."
-  (create-channel output-dir channel-name)
-  (validate-channel output-dir channel-name))
+  (let* ((packages (case type
+                     ((bioc) (all-bioc-packages))
+                     ((cran) (all-cran-packages))))
+         (missing-packages
+          (missing packages)))
+    (create-channel output-dir channel-name missing-packages type)
+    (validate-channel output-dir channel-name)))
 
 (setvbuf (current-output-port) 'line)
 (match (program-arguments)
-  ((_ output-dir channel-name) (main output-dir channel-name))
-  (_ (format #t "Usage: guix repl import.scm <output-dir> <channel-name>~%")))
+  ((_ output-dir channel-name . type)
+   (let ((type* (match type
+                  (("bioc") 'bioc)
+                  (_ 'cran))))
+     (main output-dir channel-name type*)))
+  (_ (format #t "Usage: guix repl import.scm <output-dir> <channel-name> [bioc|cran]~%")))
 
