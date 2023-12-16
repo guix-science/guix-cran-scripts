@@ -291,7 +291,7 @@ definition."
 (define (create-channel output-dir channel-name)
   "Create channel containing all CRAN packages not in Guix proper yet."
 
-  (when (eq? (length missing) 0)
+  (when (zero? (length missing))
     ;; Something must be wrong.
     (raise-exception 'no-missing-packages))
 
