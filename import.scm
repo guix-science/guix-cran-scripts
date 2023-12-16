@@ -1,4 +1,4 @@
-;;; Copyright © 2022 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2022, 2023 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2022 Lars-Dominik Braun <lars@6xq.net>
 ;;;
 ;;; This program is free software: you can redistribute it and/or modify
@@ -81,6 +81,8 @@
   (lset-difference string-ci=? all existing))
 
 (define (package-sexp->name package)
+  "Extract the value of the NAME field from the package S-expression
+PACKAGE."
   (match package
     ((and expr ('package fields ...))
      (match expr
@@ -90,6 +92,8 @@
      (pk 'nope))))
 
 (define (package-sexp->propagated-inputs package)
+  "Extract the values of the PROPAGATED-INPUTS field from the package
+S-expression PACKAGE as a list."
   (match package
     ((and expr ('package fields ...))
      (match expr
@@ -100,6 +104,8 @@
      (pk 'nope))))
 
 (define (package-sexp->inputs package)
+  "Extract the value of the INPUTS field from the package S-expression
+PACKAGE as a list."
   (match package
     ((and expr ('package fields ...))
      (match expr
@@ -110,6 +116,8 @@
      (pk 'nope))))
 
 (define (package-sexp->native-inputs package)
+  "Extract the value of the NATIVE-INPUTS field from the package
+S-expression PACKAGE as a list."
   (match package
     ((and expr ('package fields ...))
      (match expr
