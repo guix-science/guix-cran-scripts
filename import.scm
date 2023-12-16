@@ -33,6 +33,7 @@
   ((guix memoization) #:select (mlambdaq))
   (srfi srfi-1)
   (srfi srfi-26)
+  (srfi srfi-71)
   (ice-9 match)
   (ice-9 threads)
   (ice-9 sandbox)
@@ -46,12 +47,11 @@
 (define %cran-url "https://cloud.r-project.org/web/packages/")
 
 (define all
-  (call-with-values
-      (lambda ()
-        (http-get (string-append %cran-url "available_packages_by_name.html")))
-    (lambda (response body)
-      ((sxpath '(* * table * td a span *text*))
-       (html->sxml body)))))
+  (let ((response body
+         (http-get
+          (string-append %cran-url "available_packages_by_name.html"))))
+    ((sxpath '(* * table * td a span *text*))
+     (html->sxml body))))
 
 (define all-r-packages
   (fold-packages
