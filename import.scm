@@ -65,13 +65,16 @@
 (define cran-guix-name (cut guix-name "r-" <>))
 (define all-r-names (map cran-guix-name all))
 
+(define (upstream-name pkg)
+  "Return the upstream CRAN name of the package PKG."
+  (or (and=>
+       (package-properties pkg)
+       (lambda (prop) (assoc-ref prop 'upstream-name)))
+      (string-drop (package-name pkg) 2)))
+
 ;; CRAN package names available in Guix.
 (define existing
-  (map (lambda (pkg) (or (and=>
-                           (package-properties pkg)
-                           (lambda (prop) (assoc-ref prop 'upstream-name)))
-                         (string-drop (package-name pkg) 2)))
-       all-r-packages))
+  (map upstream-name all-r-packages))
 
 ;; CRAN package names not in Guix yet. Packages names are case-insensitive.
 (define missing
