@@ -56,6 +56,47 @@
   (string-append "https://bioconductor.org/packages/json/"
                  %bioconductor-version "/bioc/packages.js"))
 
+(define download
+  (@@ (guix import cran) download))
+
+(define* (download-source urls #:key method (ref '()))
+  "Download CRAN source tarball and store to cache. The cache never
+expires."
+  ;; CRAN urls have unique basename.
+  (let* ((url (match urls
+                ((url . rest) url)
+                (url url)))
+         (cache-path (string-append "cache/contents/" (basename url))))
+    (unless (access? cache-path R_OK)
+      (format #t "Fetching ~a into cache~%" url)
+      (with-store store
+        (let ((store-path (download url #:method method #:ref ref)))
+          (symlink store-path cache-path)
+          (add-indirect-root store (canonicalize-path cache-path)))))
+    cache-path))
+
+(define (cache-fresh? file)
+  "Consider the cached file stale after 23 hours."
+  (let ((file-stat (false-if-exception (lstat file))))
+    (and file-stat
+         (< (- %now (* 23 60 60))
+            (stat:mtime file-stat)))))
+
+(define* (cached-fetch-description repository name #:optional version)
+  "Back FETCH-DESCRIPTION with a cache."
+  (let ((cache-path (string-append "cache/description/" name)))
+    (let ((result
+           (if (cache-fresh? cache-path)
+               (call-with-input-file cache-path read)
+               (let ((contents
+                      ((@@ (guix import cran) fetch-description)
+                       repository name version download-source)))
+                 (call-with-output-file cache-path
+                   (lambda (port) (write contents port)))
+                 contents))))
+      (or result
+          (error (format #false "No DESCRIPTION for `~a'" name))))))
+
 ;; TODO: memoize these
 (define (all-cran-packages)
   (let ((response body
@@ -74,7 +115,15 @@
                      (lambda (port)
                        (json->scm port #:concatenated #true))))))
          (content (vector->list (assoc-ref json "content"))))
-    (map (compose car vector->list) content)))
+    ;; Some Bioconductor packages have no description file and no
+    ;; source tarball.  Remove these from the list.  As a side effect
+    ;; we warm up the cache.
+    (let* ((names (map (compose car vector->list) content)))
+      (filter-map (lambda (name)
+                    (and (false-if-exception
+                          (cached-fetch-description 'bioconductor name))
+                         name))
+                  names))))
 
 (define all-r-packages
   (fold-packages
@@ -201,43 +250,6 @@ S-expression PACKAGE as a list."
 (define (add-license:-prefix symbol)
   "Add license: prefix to SYMBOL."
   (string->symbol (string-append "license:" (symbol->string symbol))))
-
-(define (cache-fresh? file)
-  "Consider the cached file stale after 23 hours."
-  (let ((file-stat (stat file #f)))
-    (and file-stat
-         (< (- %now (* 23 60 60))
-            (stat:mtime file-stat)))))
-
-(define* (cached-fetch-description repository name #:optional version)
-  "Back FETCH-DESCRIPTION with a cache."
-  (let ((cache-path (string-append "cache/description/" name)))
-    (let ((result
-           (if (cache-fresh? cache-path)
-               (call-with-input-file cache-path read)
-               (let ((contents
-                      ((@@ (guix import cran) fetch-description)
-                       repository name version)))
-                 (call-with-output-file cache-path
-                   (lambda (port) (write contents port)))
-                 contents))))
-      (or result (error (format #false "No DESCRIPTION for `~a'" name))))))
-
-(define download
-  (@@ (guix import cran) download))
-
-(define* (download-source urls #:key method (ref '()))
-  "Download CRAN source tarball and store to cache. The cache never
-expires."
-  ;; CRAN urls have unique basename.
-  (let ((cache-path (string-append "cache/contents/" (basename (car urls)))))
-    (unless (access? cache-path R_OK)
-      (format #t "Fetching ~a into cache~%" urls)
-      (with-store store
-        (let ((store-path (download urls #:method method #:ref ref)))
-          (symlink store-path cache-path)
-          (add-indirect-root store (canonicalize-path cache-path)))))
-    cache-path))
     
 (define (import-package upstream-name)
   "Import package from CRAN, fix inputs and return imports/package
