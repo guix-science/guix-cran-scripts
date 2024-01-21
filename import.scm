@@ -1,4 +1,4 @@
-;;; Copyright © 2022, 2023 Ricardo Wurmus <rekado@elephly.net>
+;;; Copyright © 2022-2024 Ricardo Wurmus <rekado@elephly.net>
 ;;; Copyright © 2022 Lars-Dominik Braun <lars@6xq.net>
 ;;;
 ;;; This program is free software: you can redistribute it and/or modify
@@ -55,6 +55,12 @@
 (define %bioconductor-url
   (string-append "https://bioconductor.org/packages/json/"
                  %bioconductor-version "/bioc/packages.js"))
+(define %bioconductor-annotation-url
+  (string-append "https://bioconductor.org/packages/json/"
+                 %bioconductor-version "/data/annotation/packages.js"))
+(define %bioconductor-experiment-url
+  (string-append "https://bioconductor.org/packages/json/"
+                 %bioconductor-version "/data/experiment/packages.js"))
 
 (define download
   (@@ (guix import cran) download))
@@ -105,9 +111,9 @@ expires."
     ((sxpath '(* * table * td a span *text*))
      (html->sxml body))))
 
-(define (all-bioc-packages)
+(define (bioc-packages url)
   "Return the names of all Bioconductor packages"
-  (let* ((json (let ((response body (http-get %bioconductor-url)))
+  (let* ((json (let ((response body (http-get url)))
                  (let* ((text (utf8->string body))
                         (data-index (string-index text #\{))
                         (json-string (string-drop text data-index)))
@@ -124,6 +130,11 @@ expires."
                           (cached-fetch-description 'bioconductor name))
                          name))
                   names))))
+
+(define (all-bioc-packages)
+  (append (bioc-packages %bioconductor-url)
+          (bioc-packages %bioconductor-annotation-url)
+          (bioc-packages %bioconductor-experiment-url)))
 
 (define all-r-packages
   (fold-packages
