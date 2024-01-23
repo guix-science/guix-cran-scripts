@@ -42,7 +42,8 @@
   (ice-9 ftw)
   ((ice-9 popen) #:select (open-input-pipe close-pipe))
   ((ice-9 rdelim) #:select (read-string))
-  (web client))
+  (web client)
+  (web response))
 
 (define %bioc-channel-url "https://github.com/guix-science/guix-bioc.git")
 (define %cran-channel-url "https://github.com/guix-science/guix-cran.git")
@@ -80,6 +81,17 @@ expires."
           (symlink store-path cache-path)
           (add-indirect-root store (canonicalize-path cache-path)))))
     cache-path))
+
+;; We use this to avoid downloading Bioconductor data packages with
+;; excessively large source tarballs.
+(define (source-size-too-big? url)
+  "Check the size of the download behind URL and abort if it exceeds
+the threshold.  Return the size if the source is too big."
+  (let* ((response body (http-head url))
+         (largest-size (* 1024 1024 1024)) ;1 GiB
+         (size (assoc-ref (response-headers response)
+                          'content-length)))
+    (and (> size largest-size) size)))
 
 (define (cache-fresh? file)
   "Consider the cached file stale after 23 hours."
