@@ -146,10 +146,6 @@ expires."
    (list)))
 
 (define cran-guix-name (cut guix-name "r-" <>))
-(define all-r-names
-  (map cran-guix-name
-       (append (all-cran-packages)
-               (all-bioc-packages))))
 
 (define (upstream-name pkg)
   "Return the upstream CRAN name of the package PKG."
@@ -262,16 +258,23 @@ S-expression PACKAGE as a list."
   "Add license: prefix to SYMBOL."
   (string->symbol (string-append "license:" (symbol->string symbol))))
     
-(define (import-package upstream-name)
-  "Import package from CRAN, fix inputs and return imports/package
-definition."
-  (format #t "Importing package ~a from CRAN/Bioconductor…~%" upstream-name)
-  (let* ((package-sexp (cran->guix-package upstream-name
-                                           ;; We use bioconductor here
-                                           ;; because the importer
-                                           ;; falls back to 'cran
-                                           ;; anyway.
-                                           #:repo 'bioconductor
+(define (import-package upstream-name type)
+  "Import package UPSTREAM-NAME from upstream repository TYPE, fix
+inputs and return imports/package definition."
+  (format #t "Importing package ~a from ~a…~%"
+          upstream-name (case type
+                          ((bioc) "Bioconductor")
+                          ((cran) "CRAN")))
+  (let* ((all-r-names
+          (map cran-guix-name
+               (case type
+                 ((bioc)
+                  (append (all-cran-packages)
+                          (all-bioc-packages)))
+                 ((cran)
+                  (all-cran-packages)))))
+         (package-sexp (cran->guix-package upstream-name
+                                           #:repo type
                                            #:license-prefix add-license:-prefix
                                            #:fetch-description cached-fetch-description
                                            #:download-source download-source))
@@ -379,7 +382,7 @@ This is to be written to the .guix-channel file."
   (define new-sexps
     (filter-map (lambda (name)
                   (false-if-exception
-                   (import-package name)))
+                   (import-package name type)))
                 missing))
 
   (define all-sexps
