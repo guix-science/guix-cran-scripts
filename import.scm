@@ -123,9 +123,13 @@ the threshold.  Return the size if the source is too big."
     ((sxpath '(* * table * td a span *text*))
      (html->sxml body))))
 
-(define (bioc-packages url)
-  "Return the names of all Bioconductor packages"
-  (let* ((json (let ((response body (http-get url)))
+(define* (bioc-packages #:optional type)
+  "Return the names of all Bioconductor packages of the given TYPE."
+  (let* ((url (match type
+                ('annotation %bioconductor-annotation-url)
+                ('experiment %bioconductor-experiment-url)
+                (_ %bioconductor-url)))
+         (json (let ((response body (http-get url)))
                  (let* ((text (utf8->string body))
                         (data-index (string-index text #\{))
                         (json-string (string-drop text data-index)))
@@ -144,9 +148,9 @@ the threshold.  Return the size if the source is too big."
                   names))))
 
 (define (all-bioc-packages)
-  (append (bioc-packages %bioconductor-url)
-          (bioc-packages %bioconductor-annotation-url)
-          (bioc-packages %bioconductor-experiment-url)))
+  (append (bioc-packages)
+          (bioc-packages 'annotation)
+          (bioc-packages 'experiment)))
 
 (define all-r-packages
   (fold-packages
