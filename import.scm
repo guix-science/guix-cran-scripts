@@ -236,7 +236,7 @@ S-expression PACKAGE as a list."
           (format port "\n\n"))
         packages-sexp))))
 
-(define (delete-nonexistent-variables inputs)
+(define (delete-nonexistent-variables inputs all-r-names)
   "Delete non-existent variables from INPUTS."
 
   (fold (lambda (input accum)
@@ -280,11 +280,14 @@ definition."
 
          ;; Rewrite inputs, deleting non-existent variables.
          (propagated-inputs (delete-nonexistent-variables
-                              (package-sexp->propagated-inputs package-sexp)))
+                             (package-sexp->propagated-inputs package-sexp)
+                             all-r-names))
          (inputs (delete-nonexistent-variables
-                   (package-sexp->inputs package-sexp)))
+                  (package-sexp->inputs package-sexp)
+                  all-r-names))
          (native-inputs (delete-nonexistent-variables
-                          (package-sexp->native-inputs package-sexp)))
+                         (package-sexp->native-inputs package-sexp)
+                         all-r-names))
          (fixed-package-sexp (replace-package-sexp-field
                                (replace-package-sexp-field
                                  (replace-package-sexp-field package-sexp
