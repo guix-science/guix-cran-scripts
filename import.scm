@@ -292,11 +292,12 @@ inputs and return imports/package definition."
                          (package-sexp->native-inputs package-sexp)
                          all-r-names))
          (fixed-package-sexp (replace-package-sexp-field
+                              (replace-package-sexp-field
                                (replace-package-sexp-field
-                                 (replace-package-sexp-field package-sexp
-                                   'propagated-inputs propagated-inputs)
-                                 'inputs inputs)
-                               'native-inputs native-inputs))
+                                package-sexp
+                                'propagated-inputs propagated-inputs)
+                               'inputs inputs)
+                              'native-inputs native-inputs))
 
          (module-args-sexp
           `((#:use-module (guix packages))
@@ -304,12 +305,12 @@ inputs and return imports/package definition."
             (#:use-module (guix build-system r))
             (#:use-module ((guix licenses) #:prefix license:))
             ,@(fold (lambda (input accum)
-                  (match (known-variable-definition input)
-                    ;; New package → variable is defined in this module.
-                    (#f accum)
-                    ;; Existing package → import corresponding module.
-                    ((? module? module) (cons `(#:use-module ,(module-name module)) accum))))
-                 '() (append inputs propagated-inputs native-inputs))))
+                      (match (known-variable-definition input)
+                        ;; New package → variable is defined in this module.
+                        (#f accum)
+                        ;; Existing package → import corresponding module.
+                        ((? module? module) (cons `(#:use-module ,(module-name module)) accum))))
+                    '() (append inputs propagated-inputs native-inputs))))
          (package-def-sexp `(define-public ,(string->symbol guix-name) ,fixed-package-sexp)))
     (list guix-name module-args-sexp package-def-sexp)))
 
