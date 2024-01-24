@@ -169,14 +169,15 @@ given TYPE."
   (let* ((packages-info (bioconductor-packages-list type))
          (names (map (lambda (entry) (assoc-ref entry "Package"))
                      packages-info)))
-    (filter-map (lambda (name)
+    (filter-map (lambda (i name)
                   (let ((url (and=> (bioconductor-name->url name type) first)))
                     (format (current-error-port)
-                            "Validating sources of Bioconductor package: ~a...~%" name)
+                            "Validating sources of Bioconductor package [~a/~a]: ~a...~%" i (length names) name)
                     (and (not (source-size-too-big? url))
                          (false-if-exception
                           (cached-fetch-description 'bioconductor name))
                          name)))
+                (iota (length names) 1)
                 names)))
 
 (define (all-bioc-packages)
