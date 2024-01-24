@@ -89,7 +89,10 @@ the threshold.  Return the size if the source is too big."
                    (let ((response body (http-head url)))
                      (assoc-ref (response-headers response)
                                 'content-length)))))
-    (and (> size largest-size) size)))
+    (and (> size largest-size)
+         (format (current-error-port) "Rejecting `~a' due to size: ~a bytes~%"
+                 url size)
+         size)))
 
 (define (cache-fresh? file)
   "Consider the cached file stale after 23 hours."
