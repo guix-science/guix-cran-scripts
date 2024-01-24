@@ -82,10 +82,13 @@ expires."
 (define (source-size-too-big? url)
   "Check the size of the download behind URL and abort if it exceeds
 the threshold.  Return the size if the source is too big."
-  (let* ((response body (http-head url))
+  (let* ((cache-path (string-append "cache/contents/" (basename url)))
          (largest-size (* 1024 1024 1024)) ;1 GiB
-         (size (assoc-ref (response-headers response)
-                          'content-length)))
+         (size (if (access? cache-path R_OK)
+                   (stat:size (stat cache-path))
+                   (let ((response body (http-head url)))
+                     (assoc-ref (response-headers response)
+                                'content-length)))))
     (and (> size largest-size) size)))
 
 (define (cache-fresh? file)
