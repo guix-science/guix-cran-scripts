@@ -116,13 +116,14 @@ the threshold.  Return the size if the source is too big."
       (or result
           (error (format #false "No DESCRIPTION for `~a'" name))))))
 
-;; TODO: memoize these
-(define (all-cran-packages)
-  (let ((response body
-                  (http-get
-                   (string-append %cran-url "available_packages_by_name.html"))))
-    ((sxpath '(* * table * td a span *text*))
-     (html->sxml body))))
+(define all-cran-packages
+  (memoize
+   (lambda ()
+     (let ((response body
+                     (http-get
+                      (string-append %cran-url "available_packages_by_name.html"))))
+       ((sxpath '(* * table * td a span *text*))
+        (html->sxml body))))))
 
 ;; XXX taken from (guix import cran)
 (define* (bioconductor-packages-list-url #:optional type)
