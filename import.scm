@@ -180,10 +180,12 @@ given TYPE."
                 (iota (length names) 1)
                 names)))
 
-(define (all-bioc-packages)
-  (append (bioc-packages)
-          (bioc-packages 'annotation)
-          (bioc-packages 'experiment)))
+(define all-bioc-packages
+  (memoize
+   (lambda ()
+     (append (bioc-packages)
+             (bioc-packages 'annotation)
+             (bioc-packages 'experiment)))))
 
 (define all-r-packages
   (fold-packages
