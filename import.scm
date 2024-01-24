@@ -26,24 +26,28 @@
   (guix diagnostics)
   (guix modules)
   (guix discovery)
-  ((guix http-client) #:select (http-fetch))
+  (guix i18n)
+  (guix http-client)
   ((guix build utils) #:select (mkdir-p with-directory-excursion invoke delete-file-recursively))
+  ((guix build-system r) #:select (bioconductor-uri))
   ((guix store) #:select (with-store add-indirect-root))
   ((guix download) #:select (download-to-store))
-  ((guix memoization) #:select (mlambdaq))
-  (json)
+  ((guix memoization) #:select (mlambdaq memoize))
   (rnrs bytevectors)
   (srfi srfi-1)
   (srfi srfi-26)
+  (srfi srfi-34)
+  (srfi srfi-35)
   (srfi srfi-71)
   (ice-9 match)
   (ice-9 threads)
   (ice-9 sandbox)
   (ice-9 ftw)
   ((ice-9 popen) #:select (open-input-pipe close-pipe))
-  ((ice-9 rdelim) #:select (read-string))
+  ((ice-9 rdelim) #:select (read-string read-line))
   (web client)
-  (web response))
+  (web response)
+  (web uri))
 
 (define %bioc-channel-url "https://github.com/guix-science/guix-bioc.git")
 (define %cran-channel-url "https://github.com/guix-science/guix-cran.git")
@@ -53,15 +57,6 @@
 (define %cran-url "https://cloud.r-project.org/web/packages/")
 (define %bioconductor-version
   (@@ (guix import cran) %bioconductor-version))
-(define %bioconductor-url
-  (string-append "https://bioconductor.org/packages/json/"
-                 %bioconductor-version "/bioc/packages.js"))
-(define %bioconductor-annotation-url
-  (string-append "https://bioconductor.org/packages/json/"
-                 %bioconductor-version "/data/annotation/packages.js"))
-(define %bioconductor-experiment-url
-  (string-append "https://bioconductor.org/packages/json/"
-                 %bioconductor-version "/data/experiment/packages.js"))
 
 (define download
   (@@ (guix import cran) download))
@@ -123,29 +118,66 @@ the threshold.  Return the size if the source is too big."
     ((sxpath '(* * table * td a span *text*))
      (html->sxml body))))
 
+;; XXX taken from (guix import cran)
+(define* (bioconductor-packages-list-url #:optional type)
+  (string-append "https://bioconductor.org/packages/"
+                 %bioconductor-version
+                 (match type
+                   ('annotation "/data/annotation")
+                   ('experiment "/data/experiment")
+                   (_ "/bioc"))
+                 "/src/contrib/PACKAGES"))
+
+;; XXX adapted from (guix import cran)
+(define bioconductor-packages-list
+  (memoize
+   (lambda (type)
+     "Return the latest version of package NAME for the current bioconductor
+release."
+     (let ((url (string->uri (bioconductor-packages-list-url type))))
+       (guard (c ((http-get-error? c)
+                  (warning (G_ "failed to retrieve list of packages \
+from ~a: ~a (~a)~%")
+                           (uri->string (http-get-error-uri c))
+                           (http-get-error-code c)
+                           (http-get-error-reason c))
+                  #f))
+         ;; Split the big list on empty lines, then turn each chunk into an
+         ;; alist of attributes.
+         (map (lambda (chunk)
+                (description->alist (string-join chunk "\n")))
+              (let* ((port  (http-fetch/cached url))
+                     (lines (read-lines port)))
+                (close-port port)
+                (chunk-lines lines))))))))
+
+(define* (bioconductor-name->url name #:optional type)
+  "Return the source URLs for the Bioconductor package NAME of the
+given TYPE."
+  (and=> (find (lambda (meta)
+                 (string=? (assoc-ref meta "Package") name))
+               (bioconductor-packages-list type))
+         (lambda (entry)
+           (bioconductor-uri name (assoc-ref entry "Version") type))))
+
 (define* (bioc-packages #:optional type)
   "Return the names of all Bioconductor packages of the given TYPE."
-  (let* ((url (match type
-                ('annotation %bioconductor-annotation-url)
-                ('experiment %bioconductor-experiment-url)
-                (_ %bioconductor-url)))
-         (json (let ((response body (http-get url)))
-                 (let* ((text (utf8->string body))
-                        (data-index (string-index text #\{))
-                        (json-string (string-drop text data-index)))
-                   (call-with-input-string json-string
-                     (lambda (port)
-                       (json->scm port #:concatenated #true))))))
-         (content (vector->list (assoc-ref json "content"))))
-    ;; Some Bioconductor packages have no description file and no
-    ;; source tarball.  Remove these from the list.  As a side effect
-    ;; we warm up the cache.
-    (let* ((names (map (compose car vector->list) content)))
-      (filter-map (lambda (name)
-                    (and (false-if-exception
+  ;; Some Bioconductor packages have no description file and no
+  ;; source tarball.  Remove these from the list.  As a side effect
+  ;; we warm up the cache.
+  ;; Also remove source files that are too big.
+  (let* ((packages-info (bioconductor-packages-list type))
+         (names (map (lambda (entry) (assoc-ref entry "Package"))
+                     packages-info)))
+    (filter-map (lambda (name)
+                  (let ((url (and=> (bioconductor-name->url name type) first)))
+                    (format (current-error-port)
+                            "Validating sources of Bioconductor package: ~a...~%" name)
+                    (and (not (source-size-too-big? url))
+                         (false-if-exception
                           (cached-fetch-description 'bioconductor name))
-                         name))
-                  names))))
+                         name)))
+                names)))
 
 (define (all-bioc-packages)
   (append (bioc-packages)
