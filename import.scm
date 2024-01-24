@@ -328,7 +328,10 @@ inputs and return imports/package definition."
                  ((cran)
                   (all-cran-packages)))))
          (package-sexp (cran->guix-package upstream-name
-                                           #:repo type
+                                           ;; XXX: annoying discrepancy
+                                           #:repo (case type
+                                                    ((bioc) 'bioconductor)
+                                                    ((cran) 'cran))
                                            #:license-prefix add-license:-prefix
                                            #:fetch-description cached-fetch-description
                                            #:download-source download-source))
