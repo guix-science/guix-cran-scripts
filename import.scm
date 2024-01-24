@@ -28,6 +28,7 @@
   (guix discovery)
   (guix i18n)
   (guix http-client)
+  (guix sets)
   ((guix build utils) #:select (mkdir-p with-directory-excursion invoke delete-file-recursively))
   ((guix build-system r) #:select (bioconductor-uri))
   ((guix store) #:select (with-store add-indirect-root))
@@ -296,7 +297,7 @@ S-expression PACKAGE as a list."
   (fold (lambda (input accum)
     (match (known-variable-definition input)
       ;; Assumes all packages can be imported correctly i.e., all-r-names is correct.
-      (#f (if (member (symbol->string input) all-r-names)
+      (#f (if (set-contains? all-r-names (symbol->string input))
               (cons input accum)
               (begin
                 (format (current-error-port) "Deleting variable ~a: Does not exist.~%" input)
@@ -315,7 +316,19 @@ S-expression PACKAGE as a list."
 (define (add-license:-prefix symbol)
   "Add license: prefix to SYMBOL."
   (string->symbol (string-append "license:" (symbol->string symbol))))
-    
+
+(define all-r-names
+  (memoize
+   (lambda (type)
+     (list->set
+      (map cran-guix-name
+           (case type
+             ((bioc)
+              (append (all-cran-packages)
+                      (all-bioc-packages)))
+             ((cran)
+              (all-cran-packages))))))))
+
 (define (import-package upstream-name type)
   "Import package UPSTREAM-NAME from upstream repository TYPE, fix
 inputs and return imports/package definition."
@@ -323,15 +336,7 @@ inputs and return imports/package definition."
           upstream-name (case type
                           ((bioc) "Bioconductor")
                           ((cran) "CRAN")))
-  (let* ((all-r-names
-          (map cran-guix-name
-               (case type
-                 ((bioc)
-                  (append (all-cran-packages)
-                          (all-bioc-packages)))
-                 ((cran)
-                  (all-cran-packages)))))
-         (package-sexp (cran->guix-package upstream-name
+  (let* ((package-sexp (cran->guix-package upstream-name
                                            ;; XXX: annoying discrepancy
                                            #:repo (case type
                                                     ((bioc) 'bioconductor)
@@ -345,13 +350,13 @@ inputs and return imports/package definition."
          ;; Rewrite inputs, deleting non-existent variables.
          (propagated-inputs (delete-nonexistent-variables
                              (package-sexp->propagated-inputs package-sexp)
-                             all-r-names))
+                             (all-r-names type)))
          (inputs (delete-nonexistent-variables
                   (package-sexp->inputs package-sexp)
-                  all-r-names))
+                  (all-r-names type)))
          (native-inputs (delete-nonexistent-variables
                          (package-sexp->native-inputs package-sexp)
-                         all-r-names))
+                         (all-r-names type)))
          (fixed-package-sexp (replace-package-sexp-field
                               (replace-package-sexp-field
                                (replace-package-sexp-field
