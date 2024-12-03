@@ -29,7 +29,7 @@
   (guix i18n)
   (guix http-client)
   (guix sets)
-  ((guix build utils) #:select (mkdir-p with-directory-excursion invoke delete-file-recursively))
+  ((guix build utils) #:select (alist-cons-after mkdir-p with-directory-excursion invoke delete-file-recursively))
   ((guix build-system r) #:select (bioconductor-uri))
   ((guix store) #:select (with-store add-indirect-root))
   ((guix download) #:select (download-to-store))
@@ -329,6 +329,26 @@ S-expression PACKAGE as a list."
              ((cran)
               (all-cran-packages))))))))
 
+(define (disable-tests package)
+  (match package
+    ((and expr ('package fields ...))
+     (if (assoc-ref fields 'arguments)
+         ;; Add test item
+         `(package ,@(map (lambda (x)
+                            (if (eq? (car x) 'arguments)
+                                `(,(car x)
+                                  (list #:tests? #false
+                                        ,@(cadr x)))
+                                x))
+                          fields))
+         ;; Replace whole field.
+         `(package
+            ,@(alist-cons-after 'build-system 'arguments
+                                '((list #:tests? #false))
+                                fields))))
+    (x
+     (pk 'nope))))
+
 (define (import-package upstream-name type)
   "Import package UPSTREAM-NAME from upstream repository TYPE, fix
 inputs and return imports/package definition."
@@ -357,13 +377,17 @@ inputs and return imports/package definition."
          (native-inputs (delete-nonexistent-variables
                          (package-sexp->native-inputs package-sexp)
                          (all-r-names type)))
-         (fixed-package-sexp (replace-package-sexp-field
+         ;; We don't want to build vignettes or run tests because that
+         ;; usually requires inputs that are not listed in the
+         ;; DESCRIPTION file.
+         (fixed-package-sexp (disable-tests
                               (replace-package-sexp-field
                                (replace-package-sexp-field
-                                package-sexp
-                                'propagated-inputs propagated-inputs)
-                               'inputs inputs)
-                              'native-inputs native-inputs))
+                                (replace-package-sexp-field
+                                 package-sexp
+                                 'propagated-inputs propagated-inputs)
+                                'inputs inputs)
+                               'native-inputs native-inputs)))
 
          (module-args-sexp
           `((#:use-module (guix packages))
