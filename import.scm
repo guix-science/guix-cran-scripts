@@ -547,6 +547,8 @@ previous commit."
 (setvbuf (current-output-port) 'line)
 (match (program-arguments)
   ((_ output-dir channel-name . type)
+   (setenv "GUIX_CRAN_IGNORE_VIGNETTE_INPUTS" "t")
+   (setenv "GUIX_CRAN_IGNORE_TEST_INPUTS" "t")
    (let ((type* (match type
                   (("bioc") 'bioc)
                   (_ 'cran))))
