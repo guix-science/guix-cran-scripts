@@ -338,7 +338,7 @@ S-expression PACKAGE as a list."
                             (if (eq? (car x) 'arguments)
                                 `(,(car x)
                                   (list #:tests? #false
-                                        ,@(cadr x)))
+                                        ,@(cdadr x)))
                                 x))
                           fields))
          ;; Replace whole field.
